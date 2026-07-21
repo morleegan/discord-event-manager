@@ -3,12 +3,13 @@ import {
   Client,
   GatewayIntentBits,
   Partials,
-  ChannelType,
+  PermissionsBitField,
 } from 'discord.js';
 import { store } from './storage.js';
 import {
   EMOJI,
   createEvent,
+  buildAnnouncementContent,
   buildListContent,
   addSignup,
   removeSignup,
@@ -19,6 +20,16 @@ import {
   scheduleReminder,
   rescheduleAllReminders,
 } from './eventManager.js';
+import { parseEventDateTime } from './dateParser.js';
+
+const REQUIRED_PERMS = [
+  PermissionsBitField.Flags.ViewChannel,
+  PermissionsBitField.Flags.SendMessages,
+  PermissionsBitField.Flags.CreatePublicThreads,
+  PermissionsBitField.Flags.SendMessagesInThreads,
+  PermissionsBitField.Flags.AddReactions,
+  PermissionsBitField.Flags.ReadMessageHistory,
+];
 
 const client = new Client({
   intents: [
@@ -31,12 +42,6 @@ const client = new Client({
 });
 
 // ---------- helpers ----------
-
-function parseDate(dateStr, timeStr) {
-  const time = timeStr && /^\d{2}:\d{2}$/.test(timeStr) ? timeStr : '18:00';
-  const d = new Date(`${dateStr}T${time}:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
 
 async function editListMessage(thread, event) {
   const msg = await thread.messages.fetch(event.messageId);
@@ -54,44 +59,75 @@ client.on('interactionCreate', async (interaction) => {
   const dateStr = interaction.options.getString('date', true);
   const timeStr = interaction.options.getString('time', false);
 
-  const date = parseDate(dateStr, timeStr);
-  if (!date) {
+  const parsed = parseEventDateTime(dateStr, timeStr);
+  if (parsed.error) {
+    await interaction.reply({ content: parsed.error, ephemeral: true });
+    return;
+  }
+  const { date } = parsed;
+
+  // Discord doesn't allow creating a thread from a message inside
+  // another thread — catch this early with a clear message instead
+  // of a confusing silent failure.
+  if (interaction.channel.isThread()) {
     await interaction.reply({
-      content: 'That date/time didn\'t parse. Use a date like `2026-08-15` and time like `18:00`.',
+      content:
+        "I can't open a thread from inside a thread — run `/event` in a regular text channel instead.",
       ephemeral: true,
     });
     return;
   }
 
-  await interaction.reply(
-    `Looking for **${spots}** people for **${eventName}** on <t:${Math.floor(date.getTime() / 1000)}:D>.`
-  );
-  const announcement = await interaction.fetchReply();
-
-  const thread = await announcement.startThread({
-    name: `${eventName} — signups`,
-    autoArchiveDuration: 1440,
-  });
-
-  const listMessage = await thread.send('Setting up the list...');
-
-  const event = createEvent({
-    guildId: interaction.guildId,
-    channelId: interaction.channelId,
-    threadId: thread.id,
-    messageId: listMessage.id,
-    creatorId: interaction.user.id,
-    eventName,
-    dateISO: date.toISOString(),
-    spots,
-  });
-
-  await listMessage.edit(buildListContent(event));
-  for (const emoji of [EMOJI.RAISE_HAND, EMOJI.PLUS, EMOJI.EYE]) {
-    await listMessage.react(emoji);
+  const me = interaction.guild.members.me;
+  const missing = interaction.channel.permissionsFor(me)?.missing(REQUIRED_PERMS) ?? REQUIRED_PERMS;
+  if (missing.length > 0) {
+    await interaction.reply({
+      content: `I'm missing permissions in this channel to do that: **${missing.join(', ')}**. Ask a server admin to grant them (or re-invite me with the right permissions), then try again.`,
+      ephemeral: true,
+    });
+    return;
   }
 
-  scheduleReminder(client, event);
+  try {
+    await interaction.reply(buildAnnouncementContent({ eventName, spots, date }));
+    const announcement = await interaction.fetchReply();
+
+    const thread = await announcement.startThread({
+      name: `${eventName} — signups`,
+      autoArchiveDuration: 1440,
+    });
+
+    const listMessage = await thread.send('Setting up the list...');
+
+    const event = createEvent({
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      threadId: thread.id,
+      messageId: listMessage.id,
+      creatorId: interaction.user.id,
+      eventName,
+      dateISO: date.toISOString(),
+      spots,
+    });
+
+    await listMessage.edit(buildListContent(event));
+    for (const emoji of [EMOJI.RAISE_HAND, EMOJI.PLUS, EMOJI.EYE]) {
+      await listMessage.react(emoji);
+    }
+
+    scheduleReminder(client, event);
+  } catch (err) {
+    console.error('Failed to set up event thread:', err);
+    // Surface the failure instead of leaving the user staring at a
+    // post with no thread and no explanation.
+    const message =
+      "Something went wrong creating the thread or list — check that I have permission to create threads and post in them here. (See the bot's console log for details.)";
+    if (interaction.replied) {
+      await interaction.followUp({ content: message, ephemeral: true });
+    } else {
+      await interaction.reply({ content: message, ephemeral: true });
+    }
+  }
 });
 
 // ---------- reaction handling ----------

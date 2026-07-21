@@ -42,10 +42,31 @@ Spot #1 is always the event creator and isn't touched by reactions.
 /event spots:5 name:"Board game night" date:2026-08-15 time:18:00
 ```
 
-`time` is optional and defaults to 18:00. Dates/times are interpreted in
-the **bot server's local timezone** — if you deploy across timezones,
-consider pinning the host's `TZ` env var or extending `index.js`'s
-`parseDate` to accept an explicit UTC offset.
+`date` accepts either `YYYY-MM-DD` (e.g. `2026-08-15`) or US-style
+`M-D-YY` / `M-D-YYYY` (e.g. `8-15-26`, `8/15/2026`) — slashes or dashes
+both work. `time` accepts 24h (`18:00`) or 12h (`6pm`, `6:00pm`) and
+defaults to 6:00pm if omitted. Dates/times are interpreted in the **bot
+server's local timezone** — if you deploy across timezones, consider
+pinning the host's `TZ` env var.
+
+## If the thread doesn't show up
+
+The bot now replies with a clear error instead of failing silently, but a
+couple of things trip people up:
+
+- **Discord doesn't auto-open the thread for anyone.** After `/event`
+  runs, look for a small "🧵 N replies" link under the announcement
+  message — that's the thread. Click it to view/react to the list.
+  Nothing pops open automatically, on your client or anyone else's.
+- **You can't create a thread from inside a thread.** Run `/event` in a
+  normal text channel, not inside an existing thread — the bot will now
+  tell you this directly if you try.
+- **Missing permissions.** The bot checks for View Channel, Send
+  Messages, Create Public Threads, Send Messages in Threads, Add
+  Reactions, and Read Message History in the channel you run the command
+  in, and will tell you exactly which ones are missing rather than
+  failing quietly. Channel-specific permission overwrites can block the
+  bot even if its role has the permission server-wide, so check both.
 
 ## Persistence
 

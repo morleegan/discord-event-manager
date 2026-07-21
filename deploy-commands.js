@@ -13,13 +13,13 @@ const command = new SlashCommandBuilder()
   .addStringOption((opt) =>
     opt
       .setName('date')
-      .setDescription('Date, e.g. 2026-08-15')
+      .setDescription('e.g. 2026-07-16 or 7-16-26')
       .setRequired(true)
   )
   .addStringOption((opt) =>
     opt
       .setName('time')
-      .setDescription('Time in 24h HH:mm, e.g. 18:00 (defaults to 18:00)')
+      .setDescription('e.g. 18:00 or 6:00pm (defaults to 6:00pm)')
       .setRequired(false)
   )
   .toJSON();

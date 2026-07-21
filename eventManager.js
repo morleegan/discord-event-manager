@@ -60,11 +60,35 @@ function label(entry) {
   return `<@${entry.userId}>`;
 }
 
+const LEGEND = [
+  `${EMOJI.RAISE_HAND} — grab a spot (or the waitlist, if it's full)`,
+  `${EMOJI.PLUS} — bring a +1 (a guest not on Discord)`,
+  `${EMOJI.EYE} — get DMed if a spot opens, or the day before the event`,
+].join('\n');
+
+/**
+ * The top-level announcement message posted in the channel. Kept
+ * separate from the numbered list (which lives in the thread) so the
+ * emoji legend is visible without anyone having to open the thread.
+ */
+export function buildAnnouncementContent({ eventName, spots, date }) {
+  const dateDisplay = `<t:${Math.floor(date.getTime() / 1000)}:F>`;
+  return [
+    `🦆 **${eventName}** — ${dateDisplay}`,
+    `Looking for **${spots}** people. Head into the thread below to grab a spot!`,
+    '',
+    LEGEND,
+    '',
+    `_(React on the numbered list inside the thread, not on this message.)_`,
+  ].join('\n');
+}
+
 export function buildListContent(event) {
   const dateDisplay = `<t:${Math.floor(new Date(event.dateISO).getTime() / 1000)}:F>`;
   const lines = [
     `**${event.eventName}** — ${dateDisplay}`,
-    `Looking for **${event.spots}** people. React ${EMOJI.RAISE_HAND} to join, ${EMOJI.PLUS} to bring a +1, ${EMOJI.EYE} to watch for openings.`,
+    '',
+    LEGEND,
     '',
   ];
 
