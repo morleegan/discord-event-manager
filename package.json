@@ -1,0 +1,16 @@
+{
+  "name": "discord-event-bot",
+  "version": "1.0.0",
+  "description": "Discord bot that creates signup events with a thread, numbered list, reaction-based signups, waitlist, and reminders.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "node-schedule": "^2.1.1"
+  }
+}
