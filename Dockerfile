@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY ./ .
+COPY . .
 
 # No EXPOSE / PORT — this process only opens an outbound WebSocket to
 # Discord's gateway, it doesn't serve HTTP, so nothing needs to listen
