@@ -1,14 +1,25 @@
-# fly.toml — Fly.io configuration for the Discord event bot.
+# fly.toml app configuration file generated for discord-event-manager on 2026-07-22T16:16:56Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "discord-event-manager"
-primary_region = "iad"  # pick the region closest to your Discord server's members
+app = 'discord-event-manager'
+primary_region = 'iad'
 
 [build]
 
 [[mounts]]
-  source = "event_bot_data"
-  destination = "/data"
+  source = 'event_bot_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
