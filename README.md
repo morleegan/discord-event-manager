@@ -1,7 +1,8 @@
 # Discord Event Signup Bot
 
-Slash command `/event` that posts an announcement, spins up a thread,
-and manages signups entirely through reactions:
+Slash command `/event` that posts an announcement (with the 🙋/➕/👀
+legend right underneath it — that's where you react) and spins up a
+thread holding a live, read-only roster:
 
 - 🙋 raise hand — join the list (or the waitlist if it's full)
 - ➕ plus — claim a spot for "yourself +1" (a guest not on Discord)
@@ -23,7 +24,8 @@ Spot #1 is always the event creator and isn't touched by reactions.
 4. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN` and `CLIENT_ID`.
    Set `GUILD_ID` too while developing — guild-scoped commands register
    instantly, global ones can take up to an hour.
-5. Install dependencies:
+5. Install dependencies (requires **Node 22.5 or newer** — the storage
+   layer uses the built-in `node:sqlite` module, no compiler needed):
    ```
    npm install
    ```
@@ -56,7 +58,9 @@ couple of things trip people up:
 
 - **Discord doesn't auto-open the thread for anyone.** After `/event`
   runs, look for a small "🧵 N replies" link under the announcement
-  message — that's the thread. Click it to view/react to the list.
+  message — that's the thread. Click it to see who's currently signed
+  up. Reactions go on the announcement message itself, not on anything
+  inside the thread.
   Nothing pops open automatically, on your client or anyone else's.
 - **You can't create a thread from inside a thread.** Run `/event` in a
   normal text channel, not inside an existing thread — the bot will now
@@ -70,9 +74,95 @@ couple of things trip people up:
 
 ## Persistence
 
-Events are stored in `events.json` next to the code (created automatically).
-On restart, the bot re-reads this file and re-schedules any pending
-"day before" reminders, so in-flight events survive a bot restart or deploy.
+Events are stored in a local SQLite database, using Node's built-in
+`node:sqlite` module (no native dependency to install or compile — it
+ships with Node itself, requires **Node 22.5+**), so signups and the
+waitlist survive a bot restart or redeploy — as long as the database
+file itself lives on storage that survives too.
+
+By default the database lives at `./data/events.db`, which is fine for
+local development. **In production, most PaaS platforms wipe the local
+filesystem on every redeploy or restart** — you need to point `DB_PATH`
+at a persistent volume, not the app's own ephemeral disk.
+
+**Fly.io:** already configured for you — see [Deploying to Fly.io](#deploying-to-flyio)
+below, which creates and mounts the volume as part of setup.
+
+**Railway:**
+Add a Volume to your service (Settings → Volumes → New Volume), mount it
+at e.g. `/data`, then set the `DB_PATH` environment variable to
+`/data/events.db` in your service's Variables tab.
+
+Without a mounted volume, the database resets to empty on every deploy —
+the bot will still run, it'll just forget every event each time you push
+a new version.
+
+## Deploying to Fly.io
+
+The repo includes a `Dockerfile` and `fly.toml` set up specifically for
+this bot: no exposed HTTP port (it only opens an outbound connection to
+Discord's gateway), and a mounted volume for the SQLite database so data
+survives restarts and redeploys.
+
+1. **Install the Fly CLI** and log in:
+   ```bash
+   curl -L https://fly.io/install.sh | sh
+   fly auth login
+   ```
+
+2. **Create the app** (from the project root). Pick a globally-unique
+   name — this also updates `app = "..."` at the top of `fly.toml`:
+   ```bash
+   fly launch --name your-app-name-here --no-deploy
+   ```
+   When prompted, say **no** to adding a Postgres or Redis database (this
+   bot doesn't use one), and **no** to a dedicated IPv4 (not needed — the
+   bot doesn't accept inbound traffic). If it offers to overwrite the
+   included `fly.toml`, decline — the one in this repo is already tuned
+   for a non-HTTP worker.
+
+3. **Create and mount the volume** for the SQLite database. Match the
+   region you picked in step 2:
+   ```bash
+   fly volumes create event_bot_data --region iad --size 1
+   ```
+   (1 GB is far more than this bot needs.) The mount itself is already
+   declared in `fly.toml` — pointing `/data` at this volume — so nothing
+   else to configure there.
+
+4. **Set your secrets** — never put these in `fly.toml` or commit them:
+   ```bash
+   fly secrets set DISCORD_TOKEN=your-bot-token-here
+   fly secrets set CLIENT_ID=your-application-client-id-here
+   fly secrets set DB_PATH=/data/events.db
+   ```
+   Leave `GUILD_ID` unset in production so the slash command registers
+   globally (guild-scoped commands are just for fast iteration while
+   developing).
+
+5. **Deploy:**
+   ```bash
+   fly deploy
+   ```
+
+6. **Register the slash command** against production. Run this locally
+   with your production `DISCORD_TOKEN`/`CLIENT_ID` in `.env` (and
+   `GUILD_ID` unset or empty, for a global command):
+   ```bash
+   npm run deploy
+   ```
+   Global commands can take up to an hour to show up everywhere; a
+   guild-scoped one (with `GUILD_ID` set) appears instantly if you want
+   to sanity-check it in a test server first.
+
+7. **Check it's alive:**
+   ```bash
+   fly logs
+   ```
+   You should see `Logged in as YourBotName#1234`.
+
+To ship a code change later, just `fly deploy` again — the volume (and
+your event data on it) persists across deploys.
 
 ## Notes / things you may want to extend
 

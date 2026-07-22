@@ -14,8 +14,10 @@ const reminderJobs = new Map(); // messageId -> scheduled job
 /**
  * Shape of a stored event:
  * {
- *   guildId, channelId, threadId, messageId,
- *   creatorId, eventName, dateISO,
+ *   guildId, channelId, threadId,
+ *   messageId,       // the top-level announcement message — reactions live here
+ *   listMessageId,   // the roster message inside the thread — display only, no reactions
+ *   creatorId, eventName, dateISO, location, quiet,
  *   spots: number,
  *   participants: Array<null | { userId, type: 'member' | 'plus', ownerId }>,
  *   waitlist: Array<{ userId, type: 'member' | 'plus', ownerId }>,
@@ -28,10 +30,13 @@ export function createEvent({
   channelId,
   threadId,
   messageId,
+  listMessageId,
   creatorId,
   eventName,
   dateISO,
   spots,
+  location = null,
+  quiet = false,
 }) {
   const participants = new Array(spots).fill(null);
   participants[0] = { userId: creatorId, type: 'member', ownerId: creatorId };
@@ -41,10 +46,13 @@ export function createEvent({
     channelId,
     threadId,
     messageId,
+    listMessageId,
     creatorId,
     eventName,
     dateISO,
     spots,
+    location,
+    quiet,
     participants,
     waitlist: [],
     watchers: [],
@@ -67,30 +75,42 @@ const LEGEND = [
 ].join('\n');
 
 /**
- * The top-level announcement message posted in the channel. Kept
- * separate from the numbered list (which lives in the thread) so the
- * emoji legend is visible without anyone having to open the thread.
+ * The top-level announcement message posted in the channel. This is
+ * where 🙋/➕/👀 reactions are attached and handled — the legend lives
+ * here, and only here (unless `quiet` is set, which skips it — the
+ * bot still reacts, it just doesn't explain what the reactions do).
  */
-export function buildAnnouncementContent({ eventName, spots, date }) {
+export function buildAnnouncementContent({ eventName, spots, date, location, quiet }) {
   const dateDisplay = `<t:${Math.floor(date.getTime() / 1000)}:F>`;
-  return [
-    `🦆 **${eventName}** — ${dateDisplay}`,
-    `Looking for **${spots}** people. Head into the thread below to grab a spot!`,
-    '',
-    LEGEND,
-    '',
-    `_(React on the numbered list inside the thread, not on this message.)_`,
-  ].join('\n');
+  const lines = [`🦆 **${eventName}** on ${dateDisplay} — looking for **${spots}** people.`];
+
+  if (location) {
+    lines.push(`📍 ${location}`);
+  }
+
+  lines.push('');
+
+  if (!quiet) {
+    lines.push(LEGEND, '');
+  }
+
+  return lines.join('\n');
 }
 
+/**
+ * The read-only roster posted in the thread. Deliberately has no
+ * legend and no reactions of its own — it exists purely to show who's
+ * signed up, and gets edited whenever the roster changes.
+ */
 export function buildListContent(event) {
   const dateDisplay = `<t:${Math.floor(new Date(event.dateISO).getTime() / 1000)}:F>`;
-  const lines = [
-    `**${event.eventName}** — ${dateDisplay}`,
-    '',
-    LEGEND,
-    '',
-  ];
+  const lines = [`**${event.eventName}** — ${dateDisplay}`];
+
+  if (event.location) {
+    lines.push(`📍 ${event.location}`);
+  }
+
+  lines.push('');
 
   event.participants.forEach((entry, i) => {
     lines.push(`${i + 1}. ${label(entry)}`);

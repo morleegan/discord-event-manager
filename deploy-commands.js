@@ -22,6 +22,18 @@ const command = new SlashCommandBuilder()
       .setDescription('e.g. 18:00 or 6:00pm (defaults to 6:00pm)')
       .setRequired(false)
   )
+  .addStringOption((opt) =>
+    opt
+      .setName('location')
+      .setDescription('e.g. Hermasillo, AD, Discord.')
+      .setRequired(false)
+  )
+  .addBooleanOption((opt) =>
+    opt
+      .setName('quiet')
+      .setDescription('If true, it will not describe the reactions')
+      .setRequired(false)
+  )
   .toJSON();
 
 const rest = new REST().setToken(process.env.DISCORD_TOKEN);

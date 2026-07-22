@@ -4,6 +4,7 @@ import {
   GatewayIntentBits,
   Partials,
   PermissionsBitField,
+  MessageFlags,
 } from 'discord.js';
 import { store } from './storage.js';
 import {
@@ -44,7 +45,7 @@ const client = new Client({
 // ---------- helpers ----------
 
 async function editListMessage(thread, event) {
-  const msg = await thread.messages.fetch(event.messageId);
+  const msg = await thread.messages.fetch(event.listMessageId);
   await msg.edit(buildListContent(event));
   return msg;
 }
@@ -58,62 +59,105 @@ client.on('interactionCreate', async (interaction) => {
   const eventName = interaction.options.getString('name', true);
   const dateStr = interaction.options.getString('date', true);
   const timeStr = interaction.options.getString('time', false);
+  const location = interaction.options.getString('location', false);
+  const quiet = interaction.options.getBoolean('quiet', false) ?? false;
 
   const parsed = parseEventDateTime(dateStr, timeStr);
   if (parsed.error) {
-    await interaction.reply({ content: parsed.error, ephemeral: true });
+    await interaction.reply({ content: parsed.error, flags: MessageFlags.Ephemeral });
     return;
   }
   const { date } = parsed;
 
+  // interaction.channel can be null if the channel wasn't already in
+  // the client's cache when the interaction arrived (common right
+  // after bot startup) — fetch it explicitly rather than trusting it.
+  // Note: fetch() throws rather than returning null/undefined if the
+  // bot lacks access (e.g. DiscordAPIError 50001 "Missing Access"), so
+  // this has to be try/caught, not just null-checked.
+  let channel = interaction.channel;
+  if (!channel) {
+    try {
+      channel = await interaction.client.channels.fetch(interaction.channelId);
+    } catch (err) {
+      console.error('Failed to fetch channel for /event:', err);
+      const reason =
+        err?.code === 50001
+          ? "I don't have permission to view this channel — check that my role (or a channel-specific permission overwrite) grants me View Channel here."
+          : "I couldn't load this channel — try again in a moment, or ping the bot owner if this keeps happening.";
+      await interaction.reply({ content: reason, flags: MessageFlags.Ephemeral });
+      return;
+    }
+  }
+  if (!channel) {
+    await interaction.reply({
+      content: "I couldn't find this channel — try again in a moment, or ping the bot owner if this keeps happening.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   // Discord doesn't allow creating a thread from a message inside
   // another thread — catch this early with a clear message instead
   // of a confusing silent failure.
-  if (interaction.channel.isThread()) {
+  if (channel.isThread()) {
     await interaction.reply({
       content:
         "I can't open a thread from inside a thread — run `/event` in a regular text channel instead.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
   const me = interaction.guild.members.me;
-  const missing = interaction.channel.permissionsFor(me)?.missing(REQUIRED_PERMS) ?? REQUIRED_PERMS;
+  const missing = channel.permissionsFor(me)?.missing(REQUIRED_PERMS) ?? REQUIRED_PERMS;
   if (missing.length > 0) {
     await interaction.reply({
       content: `I'm missing permissions in this channel to do that: **${missing.join(', ')}**. Ask a server admin to grant them (or re-invite me with the right permissions), then try again.`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
   try {
-    await interaction.reply(buildAnnouncementContent({ eventName, spots, date }));
+    await interaction.reply(buildAnnouncementContent({ eventName, spots, date, location, quiet }));
     const announcement = await interaction.fetchReply();
 
-    const thread = await announcement.startThread({
+    // Reactions live on the announcement itself now, not on a message
+    // inside the thread — react here before anything else so the
+    // buttons are visible right away.
+    for (const emoji of [EMOJI.RAISE_HAND, EMOJI.PLUS, EMOJI.EYE]) {
+      await announcement.react(emoji);
+    }
+
+    // Deliberately NOT using announcement.startThread() here: right
+    // after an interaction reply, the message's channel can fail the
+    // client's internal cache lookup (DiscordjsError: ChannelNotCached)
+    // even though the channel object fetched above is perfectly valid.
+    // Creating the thread from that channel object sidesteps that.
+    const thread = await channel.threads.create({
       name: `${eventName} — signups`,
       autoArchiveDuration: 1440,
+      startMessage: announcement.id,
     });
 
-    const listMessage = await thread.send('Setting up the list...');
+    const listMessage = await thread.send('Setting up the roster...');
 
     const event = createEvent({
       guildId: interaction.guildId,
       channelId: interaction.channelId,
       threadId: thread.id,
-      messageId: listMessage.id,
+      messageId: announcement.id,
+      listMessageId: listMessage.id,
       creatorId: interaction.user.id,
       eventName,
       dateISO: date.toISOString(),
       spots,
+      location,
+      quiet,
     });
 
     await listMessage.edit(buildListContent(event));
-    for (const emoji of [EMOJI.RAISE_HAND, EMOJI.PLUS, EMOJI.EYE]) {
-      await listMessage.react(emoji);
-    }
 
     scheduleReminder(client, event);
   } catch (err) {
@@ -123,9 +167,9 @@ client.on('interactionCreate', async (interaction) => {
     const message =
       "Something went wrong creating the thread or list — check that I have permission to create threads and post in them here. (See the bot's console log for details.)";
     if (interaction.replied) {
-      await interaction.followUp({ content: message, ephemeral: true });
+      await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
     } else {
-      await interaction.reply({ content: message, ephemeral: true });
+      await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
     }
   }
 });
@@ -192,7 +236,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
 
 // ---------- boot ----------
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
   rescheduleAllReminders(client);
 });

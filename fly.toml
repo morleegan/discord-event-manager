@@ -1,0 +1,14 @@
+# fly.toml — Fly.io configuration for the Discord event bot.
+
+app = "your-app-name-here"
+primary_region = "iad"  # pick the region closest to your Discord server's members
+
+[build]
+
+[[mounts]]
+  source = "event_bot_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
