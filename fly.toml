@@ -12,12 +12,6 @@ primary_region = 'iad'
   source = 'event_bot_data'
   destination = '/data'
 
-# Deliberately NO [http_service] / [[services]] block. This bot
-# doesn't listen on any port — it only opens an outbound WebSocket to
-# Discord's gateway. Without a services block, Fly just runs the
-# machine continuously with no traffic-based auto-stop/start logic
-# involved at all.
-
 # If the process crashes (uncaught error, OOM, etc.), restart it
 # automatically instead of leaving the bot offline until you notice.
 [[restart]]
